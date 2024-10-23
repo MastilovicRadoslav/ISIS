@@ -1,0 +1,2 @@
+# Inteligentni_softverski_infrastrukturni_sistemi
+Project from the course Inteligentni softverski infrastrukturni sistemi
