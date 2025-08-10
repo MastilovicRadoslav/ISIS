@@ -15,7 +15,10 @@ export default function App(){
           theme="dark"
           mode="horizontal"
           defaultSelectedKeys={['home']}
-          items={[ { key: 'home', label: <Link to="/">Home</Link> } ]}
+          items={[ { key: 'home', label: <Link to="/">Home</Link> }, 
+                   { key: 'import', label: <Link to="/import">Data Import</Link> },
+                   { key: 'coverage', label: <Link to="/coverage">Coverage</Link> },  
+                ]}
         />
       </Header>
       <Content style={{ padding: '24px' }}>
