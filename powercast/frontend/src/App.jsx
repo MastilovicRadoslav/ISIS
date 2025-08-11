@@ -20,6 +20,8 @@ export default function App(){
                    { key: 'coverage', label: <Link to="/coverage">Coverage</Link> },  
                    { key: 'train', label: <Link to="/train">Train</Link> },
                    { key: 'models', label: <Link to="/models">Models</Link> },
+                   { key: 'forecast', label: <Link to="/forecast">Forecast</Link> },
+                   { key: 'forecasts', label: <Link to="/forecasts">Forecasts</Link> },
                 ]}
         />
       </Header>

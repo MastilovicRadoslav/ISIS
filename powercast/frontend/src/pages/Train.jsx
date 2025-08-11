@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Card, Typography, Form, InputNumber, Select, DatePicker, Button, message } from 'antd'
 import api from '../services/api'
 
@@ -8,8 +9,11 @@ const REGIONS = ['N.Y.C.', 'LONGIL', 'CAPITL', 'CENTRL', 'DUNWOD', 'GENESE', 'HU
 
 export default function Train(){
   const [form] = Form.useForm()
+  const [loading, setLoading] = useState(false)
 
   const onFinish = async (values) => {
+    setLoading(true)
+    const hide = message.loading('Training model... please wait', 0) // 0 znači da nema timeouta
     try{
       const body = {
         regions: values.regions,
@@ -29,28 +33,37 @@ export default function Train(){
         }
       }
       const res = await api.post('/api/train/start', body)
-      alert('Trening pokrenut i završen (sync). Sačuvano u models.')
+      hide()
+      message.success('Training finished and model saved!')
       console.log(res.data)
     }catch(e){
+      hide()
       message.error(e.response?.data?.error || e.message)
+    }finally{
+      setLoading(false)
     }
   }
 
   return (
     <Card>
       <Title level={3}>Train Model</Title>
-      <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{
-        regions: ['N.Y.C.', 'LONGIL'],
-        layers: 2,
-        hidden_size: 128,
-        dropout: 0.2,
-        epochs: 10,
-        batch_size: 64,
-        learning_rate: 0.001,
-        input_window: 168,
-        forecast_horizon: 168,
-        teacher_forcing: 0.2
-      }}>
+      <Form 
+        form={form} 
+        layout="vertical" 
+        onFinish={onFinish} 
+        initialValues={{
+          regions: ['N.Y.C.', 'LONGIL'],
+          layers: 2,
+          hidden_size: 128,
+          dropout: 0.2,
+          epochs: 10,
+          batch_size: 64,
+          learning_rate: 0.001,
+          input_window: 168,
+          forecast_horizon: 168,
+          teacher_forcing: 0.2
+        }}
+      >
         <Form.Item name="regions" label="Regions" rules={[{required:true}]}>
           <Select mode="multiple" options={REGIONS.map(r=>({label:r,value:r}))} />
         </Form.Item>
@@ -67,7 +80,7 @@ export default function Train(){
         <Form.Item name="forecast_horizon" label="Horizon (h)"><InputNumber min={24} max={168} /></Form.Item>
         <Form.Item name="teacher_forcing" label="Teacher forcing (0-1)"><InputNumber min={0} max={1} step={0.1} /></Form.Item>
         <Form.Item>
-          <Button type="primary" htmlType="submit">Train</Button>
+          <Button type="primary" htmlType="submit" loading={loading}>Train</Button>
         </Form.Item>
       </Form>
     </Card>
