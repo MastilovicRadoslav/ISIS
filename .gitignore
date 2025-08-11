@@ -4,10 +4,25 @@
 ## Get latest from https://github.com/github/gitignore/blob/main/VisualStudio.gitignore
 
 # Python virtual environment
+.venv/
 venv/
-.env/
+
+# Node packages
+node_modules/
+
+# Python cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# IDE folders
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
 
 # User-specific files
 *.rsuser
