@@ -22,6 +22,7 @@ export default function App(){
                    { key: 'models', label: <Link to="/models">Models</Link> },
                    { key: 'forecast', label: <Link to="/forecast">Forecast</Link> },
                    { key: 'forecasts', label: <Link to="/forecasts">Forecasts</Link> },
+                   { key: 'evaluate', label: <Link to="/evaluate">Evaluate</Link> },
                 ]}
         />
       </Header>

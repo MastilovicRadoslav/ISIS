@@ -26,7 +26,16 @@ export default function DataImport() {
     setUploading(true)
 
     const files = fileList.map(f => f.originFileObj)
-    const endpoint = type === 'load' ? '/api/import/load' : '/api/import/weather'
+    let endpoint = ''
+
+    if (type === 'load') {
+      endpoint = '/api/import/load'
+    } else if (type === 'weather') {
+      endpoint = '/api/import/weather'
+    } else if (type === 'holidays') {
+      endpoint = '/api/import/holidays'
+    }
+
     const newResults = []
 
     for (const file of files) {
@@ -55,8 +64,8 @@ export default function DataImport() {
     <Card>
       <Title level={3}>Data Import</Title>
       <Paragraph>
-        Odaberi tip CSV fajla i pošalji jedan ili više fajlova. Backend će upisati
-        <b> satne </b> vrijednosti u Mongo.
+        Odaberi tip CSV/Excel fajla i pošalji jedan ili više fajlova. Backend će upisati
+        <b> satne </b> ili <b> dnevne </b> vrijednosti u Mongo.
       </Paragraph>
 
       <Radio.Group
@@ -70,11 +79,12 @@ export default function DataImport() {
       >
         <Radio.Button value="load">Load (NYISO 5-min → 1h mean)</Radio.Button>
         <Radio.Button value="weather">Weather (1h)</Radio.Button>
+        <Radio.Button value="holidays">Holidays (daily)</Radio.Button>
       </Radio.Group>
 
       <Upload {...uploadProps} onChange={onUpload} disabled={uploading}>
         <Button icon={<UploadOutlined />} loading={uploading}>
-          {uploading ? 'Uploading...' : 'Select CSV files'}
+          {uploading ? 'Uploading...' : 'Select CSV/Excel files'}
         </Button>
       </Upload>
 
@@ -89,8 +99,10 @@ export default function DataImport() {
           <List.Item>
             {item.ok ? (
               <div>
-                <b>{item.file}</b> → OK • rows_hourly: {item.data.rows_hourly} • range:{' '}
-                {item.data.ts_range.from} → {item.data.ts_range.to}
+                <b>{item.file}</b> → OK •{' '}
+                {type === 'holidays'
+                  ? `rows: ${item.data.rows} • regions: ${item.data.regions.join(', ')}`
+                  : `rows_hourly: ${item.data.rows_hourly} • range: ${item.data.ts_range.from} → ${item.data.ts_range.to}`}
               </div>
             ) : (
               <div>
