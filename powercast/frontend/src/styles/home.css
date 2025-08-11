@@ -1,0 +1,58 @@
+.home-page {
+  min-height: 100svh;
+  width: 100%;
+  display: grid;
+  place-items: center;
+  position: relative;
+  padding: 16px;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(24,144,255,0.15) 0%, rgba(24,144,255,0) 60%),
+    radial-gradient(1000px 500px at 110% 10%, rgba(82,196,26,0.12) 0%, rgba(82,196,26,0) 60%),
+    linear-gradient(180deg, #ffffff, #f7f9fc);
+}
+
+.hero-layer {
+  position: absolute;
+  inset: 0;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.home-card {
+  width: min(720px, 100%);
+  z-index: 1;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.06), 0 2px 12px rgba(0,0,0,0.04);
+}
+
+/* Podešavanje unutrašnjeg paddinga AntD Card-a */
+.home-card .ant-card-body {
+  padding: 28px;
+}
+
+.home-icon {
+  font-size: 28px;
+}
+
+.home-subtitle {
+  margin-bottom: 4px !important;
+}
+
+.home-divider {
+  margin: 12px 0 !important;
+}
+
+.home-pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #0b1020;
+  color: #e8f0ff;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.home-footer {
+  margin-bottom: 0 !important;
+}
