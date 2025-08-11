@@ -18,6 +18,8 @@ export default function App(){
           items={[ { key: 'home', label: <Link to="/">Home</Link> }, 
                    { key: 'import', label: <Link to="/import">Data Import</Link> },
                    { key: 'coverage', label: <Link to="/coverage">Coverage</Link> },  
+                   { key: 'train', label: <Link to="/train">Train</Link> },
+                   { key: 'models', label: <Link to="/models">Models</Link> },
                 ]}
         />
       </Header>
