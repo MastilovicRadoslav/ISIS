@@ -3,5 +3,6 @@ flask-cors==4.0.1
 pymongo==4.7.2
 python-dotenv==1.0.1
 pandas==2.2.2
-numpy==2.0.1
+numpy==1.26.4
+torch==2.3.1+cpu
 # GridFS dolazi uz PyMongo (import: from gridfs import GridFS)
