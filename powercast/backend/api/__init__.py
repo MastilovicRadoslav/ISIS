@@ -11,3 +11,6 @@ from . import series_routes  # noqa: E402,F401
 from . import train_routes  # noqa: E402,F401
 from . import model_routes  # noqa: E402,F401
 
+#Sprint 3
+from . import forecast_routes  
+

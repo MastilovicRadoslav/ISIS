@@ -13,11 +13,10 @@ def model_list():
     for d in docs:
         d["_id"] = str(d["_id"])
         d["artifact_id"] = str(d["artifact_id"]) if d.get("artifact_id") else None
-        # expose local_path ako postoji
-        d["local_path"] = d.get("local_path")
-        # stringify datetime da AntD lepo prikaže
+        # stringify datetime da AntD lijepo prikaže
         if d.get("created_at"):
             d["created_at"] = d["created_at"].isoformat()
+        # uklonjeno: d["local_path"]
     return jsonify({"ok": True, "models": docs})
 
 @api_bp.get("/model/latest")
@@ -31,16 +30,18 @@ def model_latest():
         return jsonify({"ok": False, "error": "no model for region"}), 404
     d["_id"] = str(d["_id"])
     d["artifact_id"] = str(d["artifact_id"]) if d.get("artifact_id") else None
-    d["local_path"] = d.get("local_path")
     if d.get("created_at"):
         d["created_at"] = d["created_at"].isoformat()
+    # uklonjeno: d["local_path"]
     return jsonify({"ok": True, "model": d})
 
 @api_bp.get("/model/artifact/<artifact_id>")
 def model_artifact(artifact_id):
     fs = get_fs()
     gridout = fs.get(ObjectId(artifact_id))
-    return send_file(io.BytesIO(gridout.read()),
-                     as_attachment=True,
-                     download_name=f"{artifact_id}.pt",
-                     mimetype="application/octet-stream")
+    return send_file(
+        io.BytesIO(gridout.read()),
+        as_attachment=True,
+        download_name=f"{artifact_id}.pt",
+        mimetype="application/octet-stream"
+    )
