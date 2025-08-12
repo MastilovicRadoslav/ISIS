@@ -50,6 +50,8 @@ export default function Evaluate(){
     const amap = new Map(a.data.items.map(it => [it.ts, it.load_mw]))
     const merged = vals.map(v => ({ ts: v.ts, forecast: v.yhat, actual: amap.get(v.ts) }))
     setSeries(merged)
+    merged.sort((a,b) => new Date(a.ts) - new Date(b.ts));
+
 
     // 4) Ask backend for MAPE
     const m = await api.get('/api/metrics/mape/for-forecast', { params: { forecast_id: r._id }})

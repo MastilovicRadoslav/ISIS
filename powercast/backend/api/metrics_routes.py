@@ -5,11 +5,16 @@ from bson import ObjectId
 import pandas as pd
 import numpy as np
 
+def _to_naive_utc_series(s):
+    # bilo koji ulaz -> aware UTC -> NAIVE UTC
+    s = pd.to_datetime(s, errors="coerce", utc=True)
+    s = s.dt.tz_convert("UTC").dt.tz_localize(None)
+    return s
 
 def _mape(y_true, y_pred):
     y_true = np.asarray(y_true, dtype=float)
     y_pred = np.asarray(y_pred, dtype=float)
-    denom = np.where(np.abs(y_true) < 1e-6, 1.0, np.abs(y_true))
+    denom = np.maximum(np.abs(y_true), 1e-6)
     return float(np.mean(np.abs((y_true - y_pred) / denom)) * 100.0)
 
 @api_bp.get('/metrics/mape/for-forecast')
@@ -33,22 +38,31 @@ def mape_for_forecast():
     if not vals:
         return jsonify({"ok": False, "error": "empty forecast"}), 400
 
-    # Raspon prognoze
-    ts_from = min(v['ts'] for v in vals)
-    ts_to = max(v['ts'] for v in vals)
+    fdf = pd.DataFrame(vals)
+    if fdf.empty or 'ts' not in fdf.columns:
+        return jsonify({"ok": False, "error": "invalid forecast payload"}), 400
 
-    # Učitaj actual za region u tom intervalu
-    cur = db.series_load_hourly.find({
-        'region': region,
-        'ts': { '$gte': ts_from, '$lte': ts_to }
-    }, { '_id': 0, 'ts': 1, 'load_mw': 1 }).sort('ts', 1)
+    # normalizuj forecast ts na NAIVE UTC (safety) i na pun sat
+    fdf['ts'] = _to_naive_utc_series(fdf['ts']).dt.floor('h')
+    fdf = fdf.dropna(subset=['ts']).drop_duplicates(subset=['ts']).sort_values('ts')
+
+    ts_from = fdf['ts'].min()
+    ts_to   = fdf['ts'].max()
+
+    # učitaj actual u tom intervalu
+    cur = db.series_load_hourly.find(
+        {'region': region, 'ts': {'$gte': ts_from.to_pydatetime(), '$lte': ts_to.to_pydatetime()}},
+        {'_id': 0, 'ts': 1, 'load_mw': 1}
+    ).sort('ts', 1)
     adf = pd.DataFrame(list(cur))
-
     if adf.empty:
         return jsonify({"ok": True, "forecast_id": fid, "region": region, "points": 0, "mape": None})
 
-    fdf = pd.DataFrame(vals)
-    # Join po satu (pretpostavljamo da su timestamps već na satnom nivou)
+    # normalizuj actual ts isto
+    adf['ts'] = _to_naive_utc_series(adf['ts']).dt.floor('h')
+    adf = adf.dropna(subset=['ts']).drop_duplicates(subset=['ts']).sort_values('ts')
+
+    # inner join po satu
     j = fdf.merge(adf, how='inner', on='ts')
     if j.empty:
         return jsonify({"ok": True, "forecast_id": fid, "region": region, "points": 0, "mape": None})

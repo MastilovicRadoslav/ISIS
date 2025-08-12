@@ -1,7 +1,11 @@
 from flask import request, jsonify
 from . import api_bp
 from db import get_db
-from datetime import datetime
+import pandas as pd
+
+def _to_naive_utc(ts_like):
+    t = pd.to_datetime(ts_like, utc=True)
+    return t.tz_convert("UTC").tz_localize(None)
 
 @api_bp.get('/series/actual')
 def series_actual():
@@ -11,13 +15,13 @@ def series_actual():
     if not region or not date_from or not date_to:
         return jsonify({"ok": False, "error": "region, from, to are required"}), 400
 
-    db = get_db()
-    df = datetime.fromisoformat(date_from.replace('Z','+00:00').split('+')[0])
-    dt = datetime.fromisoformat(date_to.replace('Z','+00:00').split('+')[0])
+    df = _to_naive_utc(date_from)
+    dt = _to_naive_utc(date_to)
 
+    db = get_db()
     cur = db.series_load_hourly.find({
         'region': region,
-        'ts': { '$gte': df, '$lte': dt }
+        'ts': { '$gte': df.to_pydatetime(), '$lte': dt.to_pydatetime() }
     }, { '_id': 0, 'ts': 1, 'load_mw': 1 }).sort('ts', 1)
 
     items = list(cur)
