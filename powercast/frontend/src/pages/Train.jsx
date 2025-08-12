@@ -5,20 +5,28 @@ import api from '../services/api'
 const { Title } = Typography
 const { RangePicker } = DatePicker
 
-const REGIONS = ['N.Y.C.', 'LONGIL', 'CAPITL', 'CENTRL', 'DUNWOD', 'GENESE', 'HUD VL', 'MHK VL', 'MILLWD', 'NORTH', 'WEST']
+const REGIONS = [
+  'N.Y.C.', 'LONGIL', 'CAPITL', 'CENTRL', 'DUNWOD',
+  'GENESE', 'HUD VL', 'MHK VL', 'MILLWD', 'NORTH', 'WEST'
+]
 
-export default function Train(){
+export default function Train() {
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(false)
 
   const onFinish = async (values) => {
+    if (!values.range || values.range.length !== 2) {
+      message.error('Please select a date range.')
+      return
+    }
     setLoading(true)
-    const hide = message.loading('Training model... please wait', 0) // 0 znači da nema timeouta
-    try{
+    const hide = message.loading('Training model... please wait', 0)
+    try {
+      const [from, to] = values.range
       const body = {
         regions: values.regions,
-        date_from: values.range[0].startOf('day').toISOString(),
-        date_to: values.range[1].endOf('day').toISOString(),
+        date_from: from.toDate().toISOString(),
+        date_to: to.toDate().toISOString(),
         hyper: {
           model: 'LSTM',
           layers: values.layers,
@@ -36,10 +44,10 @@ export default function Train(){
       hide()
       message.success('Training finished and model saved!')
       console.log(res.data)
-    }catch(e){
+    } catch (e) {
       hide()
       message.error(e.response?.data?.error || e.message)
-    }finally{
+    } finally {
       setLoading(false)
     }
   }
@@ -47,10 +55,10 @@ export default function Train(){
   return (
     <Card>
       <Title level={3}>Train Model</Title>
-      <Form 
-        form={form} 
-        layout="vertical" 
-        onFinish={onFinish} 
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={onFinish}
         initialValues={{
           regions: ['N.Y.C.', 'LONGIL'],
           layers: 2,
@@ -64,23 +72,58 @@ export default function Train(){
           teacher_forcing: 0.2
         }}
       >
-        <Form.Item name="regions" label="Regions" rules={[{required:true}]}>
-          <Select mode="multiple" options={REGIONS.map(r=>({label:r,value:r}))} />
+        <Form.Item name="regions" label="Regions" rules={[{ required: true }]}>
+          <Select
+            mode="multiple"
+            options={REGIONS.map(r => ({ label: r, value: r }))}
+            placeholder="Select one or more regions"
+          />
         </Form.Item>
-        <Form.Item name="range" label="Date range" rules={[{required:true}]}>
-          <RangePicker />
+
+        <Form.Item name="range" label="Date range" rules={[{ required: true }]}>
+          <RangePicker showTime />
         </Form.Item>
-        <Form.Item name="layers" label="Layers"><InputNumber min={1} max={4} /></Form.Item>
-        <Form.Item name="hidden_size" label="Hidden size"><InputNumber min={16} max={512} /></Form.Item>
-        <Form.Item name="dropout" label="Dropout"><InputNumber min={0} max={0.9} step={0.1} /></Form.Item>
-        <Form.Item name="epochs" label="Epochs"><InputNumber min={1} max={200} /></Form.Item>
-        <Form.Item name="batch_size" label="Batch size"><InputNumber min={8} max={512} /></Form.Item>
-        <Form.Item name="learning_rate" label="Learning rate"><InputNumber min={1e-5} max={1e-1} step={0.0005} /></Form.Item>
-        <Form.Item name="input_window" label="Input window (h)"><InputNumber min={24} max={336} /></Form.Item>
-        <Form.Item name="forecast_horizon" label="Horizon (h)"><InputNumber min={24} max={168} /></Form.Item>
-        <Form.Item name="teacher_forcing" label="Teacher forcing (0-1)"><InputNumber min={0} max={1} step={0.1} /></Form.Item>
+
+        <Form.Item name="layers" label="Layers">
+          <InputNumber min={1} max={4} />
+        </Form.Item>
+
+        <Form.Item name="hidden_size" label="Hidden size">
+          <InputNumber min={16} max={512} />
+        </Form.Item>
+
+        <Form.Item name="dropout" label="Dropout">
+          <InputNumber min={0} max={0.9} step={0.1} />
+        </Form.Item>
+
+        <Form.Item name="epochs" label="Epochs">
+          <InputNumber min={1} max={200} />
+        </Form.Item>
+
+        <Form.Item name="batch_size" label="Batch size">
+          <InputNumber min={8} max={512} />
+        </Form.Item>
+
+        <Form.Item name="learning_rate" label="Learning rate">
+          <InputNumber min={0.00001} max={0.1} step={0.0005} />
+        </Form.Item>
+
+        <Form.Item name="input_window" label="Input window (h)">
+          <InputNumber min={24} max={336} />
+        </Form.Item>
+
+        <Form.Item name="forecast_horizon" label="Horizon (h)">
+          <InputNumber min={24} max={168} />
+        </Form.Item>
+
+        <Form.Item name="teacher_forcing" label="Teacher forcing (0-1)">
+          <InputNumber min={0} max={1} step={0.1} />
+        </Form.Item>
+
         <Form.Item>
-          <Button type="primary" htmlType="submit" loading={loading}>Train</Button>
+          <Button type="primary" htmlType="submit" loading={loading}>
+            Train
+          </Button>
         </Form.Item>
       </Form>
     </Card>

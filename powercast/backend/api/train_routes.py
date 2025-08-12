@@ -1,7 +1,7 @@
 from flask import request, jsonify
 from . import api_bp
 from db import get_db, get_fs
-from datetime import datetime
+from datetime import datetime, timezone
 from ml.train import train_lstm_on_regions
 from bson import ObjectId
 
@@ -27,6 +27,8 @@ def train_start():
 
     now_tag = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
+    now_utc = datetime.now(timezone.utc)  # aware UTC
+
     for r in results:
         if not r.get("ok"):
             out.append(r)
@@ -43,7 +45,8 @@ def train_start():
             "hyper": hyper,
             "train_range": {"from": date_from, "to": date_to},
             "metrics": r["metrics"],
-            "created_at": datetime.utcnow(),
+            "created_at": now_utc,                       # aware UTC zapis u Mongo
+            "created_at_ms": int(now_utc.timestamp()*1000),  # zgodno i za FE
             "artifact_id": artifact_id
         }
         ins = db.models.insert_one(doc)
@@ -54,6 +57,8 @@ def train_start():
             "model_id": str(ins.inserted_id),
             "artifact_id": str(artifact_id),
             "metrics": r["metrics"],
+            "created_at_ms": doc["created_at_ms"],      # odmah vrati ms
+
         })
 
     return jsonify({"ok": True, "results": out})
