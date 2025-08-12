@@ -1,29 +1,81 @@
+# import_routes.py
 from flask import request, jsonify
 from . import api_bp
 from db import get_db
-import pandas as pd
-from datetime import datetime
 from pymongo import UpdateOne, ASCENDING
+import pandas as pd
+import numpy as np
+from pytz import timezone, UTC
 
-# — Helpers —
+# ---------- Global / helpers ----------
+
+NY_TZ = timezone("America/New_York")
+
 REQUIRED_LOAD_COLS = ["Time Stamp", "Name", "Load"]
-REQUIRED_WEATHER_COLS = ["datetime", "name"]  # ostale numeric kolone uzimamo kada postoje
 
+# koristimo memorijski flag da indexe ne kreiramo stalno
 INDEXED = {"series_load_hourly": False, "series_weather_hourly": False}
-
-def ensure_indexes(db):
-    global INDEXED
-    if not INDEXED["series_load_hourly"]:
-        db.series_load_hourly.create_index([("region", ASCENDING), ("ts", ASCENDING)], unique=True)
-        INDEXED["series_load_hourly"] = True
-    if not INDEXED["series_weather_hourly"]:
-        db.series_weather_hourly.create_index([("location", ASCENDING), ("ts", ASCENDING)], unique=True)
-        INDEXED["series_weather_hourly"] = True
 
 
 def _response_error(msg, status=400):
     return jsonify({"ok": False, "error": msg}), status
 
+
+def ensure_indexes(db):
+    """Kreira unique indexe (idempotentno)."""
+    global INDEXED
+    try:
+        if not INDEXED["series_load_hourly"]:
+            db.series_load_hourly.create_index(
+                [("region", ASCENDING), ("ts", ASCENDING)], unique=True
+            )
+            INDEXED["series_load_hourly"] = True
+    except Exception:
+        INDEXED["series_load_hourly"] = True  # pretpostavi da već postoji
+
+    try:
+        if not INDEXED["series_weather_hourly"]:
+            db.series_weather_hourly.create_index(
+                [("location", ASCENDING), ("ts", ASCENDING)], unique=True
+            )
+            INDEXED["series_weather_hourly"] = True
+    except Exception:
+        INDEXED["series_weather_hourly"] = True
+
+
+def to_utc_series_localized(s: pd.Series) -> pd.Series:
+    """
+    Naivnu lokalnu seriju (America/New_York) lokalizuje uz DST rubne slučajeve
+    i prebacuje u UTC (aware Timestamp).
+    - ambiguous='infer' rješava duplirane sate u jesen (fall back)
+    - nonexistent='shift_forward' rješava 'propuštene' sate u proljeće (spring forward)
+    """
+    s = pd.to_datetime(s, errors="coerce")
+    s = s.dropna()
+    # lokalizuj na NY, pa konvertuj na UTC
+    s_local = s.dt.tz_localize(
+        NY_TZ, ambiguous="infer", nonexistent="shift_forward"
+    )
+    return s_local.dt.tz_convert(UTC)
+
+
+def utc_floor_hour(s_utc: pd.Series) -> pd.Series:
+    """Floor na puni sat u UTC zoni (aware Timestamp)."""
+    return s_utc.dt.floor("h")
+
+
+def aware_to_naive_utc(ts: pd.Timestamp) -> pd.Timestamp:
+    """
+    Pretvara aware UTC Timestamp u naive UTC (bez tzinfo),
+    što je poželjno za Mongo index stabilnost.
+    """
+    if ts.tzinfo is None:
+        # pretpostavi da je već UTC-naive
+        return ts
+    return ts.tz_convert(UTC).tz_localize(None)
+
+
+# ---------- LOAD IMPORT (5-min → hourly mean) ----------
 
 @api_bp.post("/import/load")
 def import_load_csv():
@@ -34,54 +86,89 @@ def import_load_csv():
         return _response_error("Missing 'file' in form-data")
 
     f = request.files["file"]
+
     try:
-        df = pd.read_csv(f)
+        df = pd.read_csv(f, low_memory=False)
     except Exception as e:
         return _response_error(f"CSV parse error: {e}")
 
+    # validacija kolona
     missing = [c for c in REQUIRED_LOAD_COLS if c not in df.columns]
     if missing:
         return _response_error(f"Missing columns: {missing}")
 
-    # Drop NA & to datetime
+    # osnovno čišćenje
+    before_rows = len(df)
     df = df.dropna(subset=["Time Stamp", "Name", "Load"]).copy()
-    df["Time Stamp"] = pd.to_datetime(df["Time Stamp"], errors="coerce")
-    df = df.dropna(subset=["Time Stamp"])  # ukloni neparsirane datume
+    # parsiraj numeric
+    df["Load"] = pd.to_numeric(df["Load"], errors="coerce")
+    df = df.dropna(subset=["Load"])
+    # u UTC (aware)
+    try:
+        ts_utc = to_utc_series_localized(df["Time Stamp"])
+    except Exception as e:
+        return _response_error(f"Timezone localization error: {e}")
+    df = df.loc[ts_utc.index].copy()
+    df["ts_utc"] = ts_utc
+    # satna agregacija u UTC
+    df["ts_hour_utc"] = utc_floor_hour(df["ts_utc"])
 
-    # Normališe na sat: NYISO 'Load' je MW snapshot -> uzmimo prosjek u satu
-    df["hour"] = df["Time Stamp"].dt.floor("h")
-    g = df.groupby(["Name", "hour"])['Load'].mean().reset_index().rename(columns={"Name": "region", "hour": "ts", "Load": "load_mw"})
+    g = (
+        df.groupby(["Name", "ts_hour_utc"])["Load"]
+          .mean()
+          .reset_index()
+          .rename(columns={"Name": "region", "Load": "load_mw", "ts_hour_utc": "ts"})
+    )
 
     if g.empty:
         return _response_error("No usable rows after cleaning")
 
-    # Bulk upsert po (region, ts)
+    # deduplikacija za svaki slučaj
+    g = g.drop_duplicates(subset=["region", "ts"])
+
+    # pretvori u NAIVE UTC za Mongo
+    g["ts"] = g["ts"].apply(aware_to_naive_utc)
+
+    # bulk upsert
     ops = []
     for _, row in g.iterrows():
         ops.append(
             UpdateOne(
                 {"region": row["region"], "ts": pd.to_datetime(row["ts"]).to_pydatetime()},
-                {"$set": {"region": row["region"], "ts": pd.to_datetime(row["ts"]).to_pydatetime(), "load_mw": float(row["load_mw"]) }},
+                {"$set": {
+                    "region": row["region"],
+                    "ts": pd.to_datetime(row["ts"]).to_pydatetime(),
+                    "load_mw": float(row["load_mw"])
+                }},
                 upsert=True
             )
         )
+
+    res = None
     if ops:
-        res = db.series_load_hourly.bulk_write(ops, ordered=False)
-    else:
-        res = None
+        try:
+            res = db.series_load_hourly.bulk_write(
+                ops, ordered=False, bypass_document_validation=True
+            )
+        except Exception as e:
+            return _response_error(f"Mongo bulk_write error: {e}")
 
     regions = sorted(g["region"].unique().tolist())
-    ts_min, ts_max = g["ts"].min(), g["ts"].max()
+    ts_min, ts_max = pd.to_datetime(g["ts"]).min(), pd.to_datetime(g["ts"]).max()
 
     return jsonify({
         "ok": True,
         "file": f.filename,
         "regions": regions,
+        "rows_input": int(before_rows),
         "rows_hourly": int(g.shape[0]),
         "ts_range": {"from": ts_min.isoformat(), "to": ts_max.isoformat()},
-        "upserts": getattr(res, 'upserted_count', 0),
-        "modified": getattr(res, 'modified_count', 0)
+        "upserts": getattr(res, 'upserted_count', 0) if res else 0,
+        "modified": getattr(res, 'modified_count', 0) if res else 0
     })
+
+
+# ---------- WEATHER IMPORT (hourly → hourly mean by hour) ----------
 
 @api_bp.post("/import/weather")
 def import_weather_csv():
@@ -94,7 +181,6 @@ def import_weather_csv():
     f = request.files["file"]
 
     try:
-        # stabilnije čitanje CSV-a
         df = pd.read_csv(f, low_memory=False)
     except Exception as e:
         return _response_error(f"CSV parse error: {e}")
@@ -102,14 +188,13 @@ def import_weather_csv():
     if df.empty or df.shape[1] == 0:
         return _response_error("Empty CSV or no columns")
 
-    # --- Header normalizacija ---
-    # trim + lower, pa poslije napravimo alias mape
+    # Header normalizacija (trim, lower)
     original_cols = df.columns.tolist()
-    norm_cols = [c.strip() for c in original_cols]
-    lower_map = {c: c.strip().lower() for c in original_cols}
-    df.columns = [lower_map[c] for c in original_cols]
+    df.columns = [c.strip() for c in df.columns]
+    lower_map = {c: c.lower() for c in df.columns}
+    df.rename(columns=lower_map, inplace=True)
 
-    # aliasi za tipične varijante
+    # aliasi
     rename_map = {
         "date time": "datetime",
         "timestamp": "datetime",
@@ -119,35 +204,36 @@ def import_weather_csv():
     }
     for src, dst in rename_map.items():
         if src in df.columns and dst not in df.columns:
-            df = df.rename(columns={src: dst})
+            df.rename(columns={src: dst}, inplace=True)
 
-    # Provjera obaveznih kolona
+    # validacija obaveznih
     required = ["datetime", "name"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         return _response_error(f"Missing columns: {missing}. Seen columns={list(df.columns)}")
 
-    # --- Čišćenje i priprema ---
+    # čišćenje
+    before_rows = len(df)
     df = df.dropna(subset=["datetime", "name"]).copy()
-    # parsiraj vrijeme (dozvoli razne formate)
-    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce", utc=True)
-    df = df.dropna(subset=["datetime"])
-    if df.empty:
-        return _response_error("No valid datetimes after parsing")
+    df["name"] = df["name"].astype(str).str.strip()
 
-    # normalizuj na pun sat
-    df["hour"] = df["datetime"].dt.floor("h")
+    # u lokalno NY pa u UTC (aware)
+    try:
+        dt_utc = to_utc_series_localized(df["datetime"])
+    except Exception as e:
+        return _response_error(f"Timezone localization error: {e}")
+    df = df.loc[dt_utc.index].copy()
+    df["ts_utc"] = dt_utc
+    df["ts_hour_utc"] = utc_floor_hour(df["ts_utc"])
 
-    # identifikuj kandidat kolone za numeriku: sve osim meta kolona
-    meta_cols = {"datetime", "name", "hour"}
-    candidate_cols = [c for c in df.columns if c not in meta_cols]
+    # kolone koje NE tretiramo kao numeriku
+    exclude_cols = {"datetime", "name", "ts_utc", "ts_hour_utc", "preciptype", "conditions"}
+    candidate_cols = [c for c in df.columns if c not in exclude_cols]
 
-    # coerci u numeričko gdje moguće (prazne kolone ostaju NaN)
+    # numeričke kolone kroz coercion
     numeric_cols = []
     for c in candidate_cols:
-        # probaj pretvoriti u broj; ako ništa ne uspije, kolona će biti all-NaN
         coerced = pd.to_numeric(df[c], errors="coerce")
-        # zadrži ako ima bar jedan broj
         if coerced.notna().any():
             df[c] = coerced
             numeric_cols.append(c)
@@ -155,26 +241,36 @@ def import_weather_csv():
     if not numeric_cols:
         return _response_error("No numeric columns detected (after coercion)")
 
-    # agregacija na sat (mean)
+    # agregacija mean po satu i lokaciji
     agg = {c: "mean" for c in numeric_cols}
-    g = df.groupby(["name", "hour"]).agg(agg).reset_index().rename(
-        columns={"name": "location", "hour": "ts"}
+    g = (
+        df.groupby(["name", "ts_hour_utc"])
+          .agg(agg)
+          .reset_index()
+          .rename(columns={"name": "location", "ts_hour_utc": "ts"})
     )
 
     if g.empty:
         return _response_error("No usable rows after cleaning/grouping")
 
-    # --- Bulk upsert ---
+    # deduplikacija
+    g = g.drop_duplicates(subset=["location", "ts"])
+
+    # NAIVE UTC za Mongo
+    g["ts"] = g["ts"].apply(aware_to_naive_utc)
+
+    # bulk upsert
     ops = []
     for _, row in g.iterrows():
         doc = {
             "location": row["location"],
-            "ts": pd.to_datetime(row["ts"]).to_pydatetime(),  # timezone-aware → naive UTC dt ok
+            "ts": pd.to_datetime(row["ts"]).to_pydatetime(),  # naive UTC
         }
         for c in numeric_cols:
             v = row[c]
             if pd.notna(v):
                 doc[c] = float(v)
+
         ops.append(
             UpdateOne(
                 {"location": doc["location"], "ts": doc["ts"]},
@@ -186,23 +282,24 @@ def import_weather_csv():
     res = None
     if ops:
         try:
-            res = db.series_weather_hourly.bulk_write(ops, ordered=False)
+            res = db.series_weather_hourly.bulk_write(
+                ops, ordered=False, bypass_document_validation=True
+            )
         except Exception as e:
-            # Ako već ima duplikata i tek sada pravimo unique index, ovo može dići grešku
             return _response_error(f"Mongo bulk_write error: {e}")
 
     locations = sorted(g["location"].unique().tolist())
-    ts_min, ts_max = g["ts"].min(), g["ts"].max()
+    ts_min, ts_max = pd.to_datetime(g["ts"]).min(), pd.to_datetime(g["ts"]).max()
 
     return jsonify({
         "ok": True,
         "file": f.filename,
         "locations": locations,
+        "rows_input": int(before_rows),
         "rows_hourly": int(g.shape[0]),
-        "ts_range": {"from": pd.to_datetime(ts_min).isoformat(), "to": pd.to_datetime(ts_max).isoformat()},
+        "ts_range": {"from": ts_min.isoformat(), "to": ts_max.isoformat()},
         "upserts": getattr(res, "upserted_count", 0) if res else 0,
         "modified": getattr(res, "modified_count", 0) if res else 0,
-        # korisno za debug u UI:
         "detected_numeric_columns": numeric_cols,
         "all_columns_seen": list(df.columns),
     })
