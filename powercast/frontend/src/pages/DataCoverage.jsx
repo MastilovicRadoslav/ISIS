@@ -75,8 +75,8 @@ export default function DataCoverage(){
             description={
               <div>
                 <div><b>Load</b>: {summary.load.exists ? `${summary.load.from} → ${summary.load.to} (${summary.load.hours}h, ${summary.load.keys} regiona)` : 'no data'}</div>
-                <div><b>Weather</b>: {summary.weather.exists ? `${summary.weather.from} → ${summary.weather.to} (${summary.weather.hours}h, ${summary.weather.keys} godina)` : 'no data'}</div>
-                <div><b>Holidays</b>: {summary.holidays.exists ? `${summary.holidays.from} → ${summary.holidays.to} (${summary.holidays.days} days, ${summary.holidays.keys} grad)` : 'no data'}</div>
+                <div><b>Weather</b>: {summary.weather.exists ? `${summary.weather.from} → ${summary.weather.to} (${summary.weather.hours}h, ${summary.weather.keys} lokacija)` : 'no data'}</div>
+                <div><b>Holidays</b>: {summary.holidays.exists ? `${summary.holidays.from} → ${summary.holidays.to} (${summary.holidays.days} days, ${summary.holidays.keys} region)` : 'no data'}</div>
               </div>
             }
           />

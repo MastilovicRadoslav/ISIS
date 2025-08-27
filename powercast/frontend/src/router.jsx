@@ -9,8 +9,6 @@ import Forecast from './pages/Forecast'
 import ForecastsList from './pages/ForecastsList'
 import Evaluate from './pages/Evaluate'
 
-
-
 export default function Router(){
   return useRoutes([
     { path: '/', element: <Home /> },

@@ -4,6 +4,7 @@ from db import get_db, get_fs
 from bson import ObjectId
 import io
 
+#pregled svih (ili po regionu)
 @api_bp.get("/model/list")
 def model_list():
     db = get_db()
@@ -19,6 +20,7 @@ def model_list():
         # uklonjeno: d["local_path"]
     return jsonify({"ok": True, "models": docs})
 
+#najnoviji za region,
 @api_bp.get("/model/latest")
 def model_latest():
     db = get_db()
@@ -35,6 +37,7 @@ def model_latest():
     # uklonjeno: d["local_path"]
     return jsonify({"ok": True, "model": d})
 
+#→ stvarni .pt fajl modela za download/učitavanje
 @api_bp.get("/model/artifact/<artifact_id>")
 def model_artifact(artifact_id):
     fs = get_fs()

@@ -42,7 +42,7 @@ export default function Train() {
       }
       const res = await api.post('/api/train/start', body)
       hide()
-      message.success('Training finished and model saved!')
+      alert('Training finished and model saved!')
       console.log(res.data)
     } catch (e) {
       hide()

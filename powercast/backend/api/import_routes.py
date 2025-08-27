@@ -16,11 +16,11 @@ REQUIRED_LOAD_COLS = ["Time Stamp", "Name", "Load"]
 # koristimo memorijski flag da indexe ne kreiramo stalno
 INDEXED = {"series_load_hourly": False, "series_weather_hourly": False}
 
-
+#Uniformno vraća grešku: {"ok": False, "error": msg}, sa HTTP status kodom.
 def _response_error(msg, status=400):
     return jsonify({"ok": False, "error": msg}), status
 
-
+#Idempotentno kreira unique indekse:
 def ensure_indexes(db):
     """Kreira unique indexe (idempotentno)."""
     global INDEXED
@@ -42,22 +42,31 @@ def ensure_indexes(db):
     except Exception:
         INDEXED["series_weather_hourly"] = True
 
-
 def to_utc_series_localized(s: pd.Series) -> pd.Series:
-    """
-    Naivnu lokalnu seriju (America/New_York) lokalizuje uz DST rubne slučajeve
-    i prebacuje u UTC (aware Timestamp).
-    - ambiguous='infer' rješava duplirane sate u jesen (fall back)
-    - nonexistent='shift_forward' rješava 'propuštene' sate u proljeće (spring forward)
-    """
+    # 1) Pretvori ulaznu seriju (stringovi ili datumi) u pandas datetime.
+    #    - errors="coerce" → sve nevažeće vrijednosti postaju NaT (Not a Time).
     s = pd.to_datetime(s, errors="coerce")
-    s = s.dropna()
-    # lokalizuj na NY, pa konvertuj na UTC
-    s_local = s.dt.tz_localize(
-        NY_TZ, ambiguous="infer", nonexistent="shift_forward"
-    )
-    return s_local.dt.tz_convert(UTC)
 
+    # 2) Izbaci sve NaT vrijednosti (neispravne ili prazne datume).
+    s = s.dropna()
+
+    s = s.sort_values()
+
+    # 3) Lokalizuj datume u vremensku zonu "America/New_York".
+    #    Ovdje nastaju DST rubni slučajevi:
+    #    - ambiguous='infer'  → u jesen (fall back) sat od 1:00–2:00 se ponavlja 2 puta;
+    #                           Pandas pokušava pogoditi koji je ispravan.
+    #    - nonexistent='shift_forward' → u proljeće (spring forward) sat od 2:00–3:00 ne postoji;
+    #                                    vrijeme se pomjera unaprijed na prvi validan sat (npr. 03:00).
+    s_local = s.dt.tz_localize(
+        NY_TZ, 
+        ambiguous="infer", 
+        nonexistent="shift_forward"
+    )
+
+    # 4) Konvertuj iz lokalnog vremena (NY) u univerzalno UTC vrijeme.
+    #    Na ovaj način dobijamo jednoznačne, stabilne UTC datetime vrijednosti.
+    return s_local.dt.tz_convert(UTC)
 
 def utc_floor_hour(s_utc: pd.Series) -> pd.Series:
     """Floor na puni sat u UTC zoni (aware Timestamp)."""
@@ -79,40 +88,54 @@ def aware_to_naive_utc(ts: pd.Timestamp) -> pd.Timestamp:
 
 @api_bp.post("/import/load")
 def import_load_csv():
-    db = get_db()
-    ensure_indexes(db)
+    db = get_db()  # 1) Dobavi Mongo konekciju (pymongo database objekat)
+    ensure_indexes(db)  # 2) Idempotentno kreiraj unikatne indekse (region+ts)
 
+    # 3) Validacija da je fajl prisutan u multipart form-data pod ključem "file"
     if "file" not in request.files:
         return _response_error("Missing 'file' in form-data")
 
     f = request.files["file"]
 
+    # 4) Učitaj CSV u pandas DataFrame (bez nepotrebnog tip-guessanja)
     try:
         df = pd.read_csv(f, low_memory=False)
     except Exception as e:
         return _response_error(f"CSV parse error: {e}")
 
-    # validacija kolona
+    # 5) Provjeri da su obavezne kolone prisutne (Time Stamp, Name, Load)
     missing = [c for c in REQUIRED_LOAD_COLS if c not in df.columns]
     if missing:
         return _response_error(f"Missing columns: {missing}")
 
-    # osnovno čišćenje
+    # 6) Osnovno čišćenje:
+    #    - zapamti ulazni broj redova (za povratnu informaciju)
+    #    - odbaci redove bez bilo koje od ključnih kolona
     before_rows = len(df)
     df = df.dropna(subset=["Time Stamp", "Name", "Load"]).copy()
-    # parsiraj numeric
+
+    # 7) Parsiraj Load u numerički tip; sve nevažeće vrijednosti postaju NaN
     df["Load"] = pd.to_numeric(df["Load"], errors="coerce")
+    #    - odbaci redove gdje je Load NaN
     df = df.dropna(subset=["Load"])
-    # u UTC (aware)
+
+    # 8) Pretvori "Time Stamp" (naivni lokalni NY) u AWARE UTC,
+    #    uz rješavanje DST rubnih slučajeva (spring forward / fall back)
     try:
         ts_utc = to_utc_series_localized(df["Time Stamp"])
     except Exception as e:
         return _response_error(f"Timezone localization error: {e}")
+
+    #    - poravnaj DF na validne indekse (gdje je parsiranje uspjelo),
+    #      i sačuvaj kolonu sa UTC aware timestampom
     df = df.loc[ts_utc.index].copy()
     df["ts_utc"] = ts_utc
-    # satna agregacija u UTC
+
+    # 9) Floor na puni sat u UTC (npr. 12:34 → 12:00); priprema za satnu agregaciju
     df["ts_hour_utc"] = utc_floor_hour(df["ts_utc"])
 
+    # 10) Grupacija i satna agregacija:
+    #     - po regionu ("Name") i satu (UTC) uzmi prosjek od 5-min vrijednosti
     g = (
         df.groupby(["Name", "ts_hour_utc"])["Load"]
           .mean()
@@ -120,16 +143,17 @@ def import_load_csv():
           .rename(columns={"Name": "region", "Load": "load_mw", "ts_hour_utc": "ts"})
     )
 
+    # 11) Ako je sve odbačeno tokom čišćenja – javi korisniku
     if g.empty:
         return _response_error("No usable rows after cleaning")
 
-    # deduplikacija za svaki slučaj
+    # 12) Ukloni eventualne duplikate (region, ts)
     g = g.drop_duplicates(subset=["region", "ts"])
 
-    # pretvori u NAIVE UTC za Mongo
+    # 13) Pretvori AWARE UTC → NAIVE UTC (bez tzinfo) radi stabilnih Mongo indeksa
     g["ts"] = g["ts"].apply(aware_to_naive_utc)
 
-    # bulk upsert
+    # 14) Bulk upsert priprema – za svaki red napravi UpdateOne sa upsert=True
     ops = []
     for _, row in g.iterrows():
         ops.append(
@@ -144,6 +168,7 @@ def import_load_csv():
             )
         )
 
+    # 15) Izvrši bulk_write ne-ordered (brže; preskače konflikte gdje može)
     res = None
     if ops:
         try:
@@ -153,20 +178,21 @@ def import_load_csv():
         except Exception as e:
             return _response_error(f"Mongo bulk_write error: {e}")
 
+    # 16) Pripremi povratnu informaciju o importu (opseg vremena, broj regiona, itd.)
     regions = sorted(g["region"].unique().tolist())
     ts_min, ts_max = pd.to_datetime(g["ts"]).min(), pd.to_datetime(g["ts"]).max()
 
+    # 17) JSON odgovor sa metrikama i statistikama upisa
     return jsonify({
         "ok": True,
         "file": f.filename,
         "regions": regions,
-        "rows_input": int(before_rows),
-        "rows_hourly": int(g.shape[0]),
+        "rows_input": int(before_rows),        # koliko je došlo
+        "rows_hourly": int(g.shape[0]),        # koliko satnih zapisa je nastalo
         "ts_range": {"from": ts_min.isoformat(), "to": ts_max.isoformat()},
         "upserts": getattr(res, 'upserted_count', 0) if res else 0,
         "modified": getattr(res, 'modified_count', 0) if res else 0
     })
-
 
 # ---------- WEATHER IMPORT (hourly → hourly mean by hour) ----------
 

@@ -1,29 +1,34 @@
 import { Layout, Menu, theme } from 'antd'
 import { Link } from 'react-router-dom'
 import Router from './router'
+import { ThunderboltOutlined } from "@ant-design/icons";
+
 
 const { Header, Content, Footer } = Layout
 
-export default function App(){
+export default function App() {
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken()
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center' }}>
-        <div style={{ color: '#fff', fontWeight: 700, marginRight: 24 }}>PowerCast</div>
+      <div style={{ display: "flex", alignItems: "center", color: "#fff", fontWeight: 700, marginRight: 24 }}>
+        <ThunderboltOutlined style={{ marginRight: 8 }} />
+        PowerCast
+      </div>
         <Menu
           theme="dark"
           mode="horizontal"
           defaultSelectedKeys={['home']}
-          items={[ { key: 'home', label: <Link to="/">Home</Link> }, 
-                   { key: 'import', label: <Link to="/import">Data Import</Link> },
-                   { key: 'coverage', label: <Link to="/coverage">Coverage</Link> },  
-                   { key: 'train', label: <Link to="/train">Train</Link> },
-                   { key: 'models', label: <Link to="/models">Models</Link> },
-                   { key: 'forecast', label: <Link to="/forecast">Forecast</Link> },
-                   { key: 'forecasts', label: <Link to="/forecasts">Forecasts</Link> },
-                   { key: 'evaluate', label: <Link to="/evaluate">Evaluate</Link> },
-                ]}
+          items={[{ key: 'home', label: <Link to="/">Home</Link> },
+          { key: 'import', label: <Link to="/import">Data Import</Link> },
+          { key: 'coverage', label: <Link to="/coverage">Coverage</Link> },
+          { key: 'train', label: <Link to="/train">Train</Link> },
+          { key: 'models', label: <Link to="/models">Models</Link> },
+          { key: 'forecast', label: <Link to="/forecast">Forecast</Link> },
+          { key: 'forecasts', label: <Link to="/forecasts">Forecasts</Link> },
+          { key: 'evaluate', label: <Link to="/evaluate">Evaluate</Link> },
+          ]}
         />
       </Header>
       <Content style={{ padding: '24px' }}>

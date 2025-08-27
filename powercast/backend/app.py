@@ -7,12 +7,12 @@ from api import api_bp
 def create_app():
     app = Flask(__name__)
     
-    CORS(app, resources={r"/*": {"origins": Config.CORS_ORIGINS.split(",")}})
+    CORS(app, resources={r"/*": {"origins": Config.CORS_ORIGINS.split(",")}}) #CORS standardno ali za sve rtue
 
     _ = get_db()  # inicijalizacija konekcije ka Mongo
-    app.register_blueprint(api_bp, url_prefix="/api")
+    app.register_blueprint(api_bp, url_prefix="/api") # registrovanje Blueprint za aktiviranje importa ruta, sve imaju prefiks /api
 
-    @app.get("/")
+    @app.get("/") # healt-check
     def root():
         return {"service": "powercast-backend", "ok": True}
 

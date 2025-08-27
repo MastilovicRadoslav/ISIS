@@ -17,6 +17,7 @@ def _mape(y_true, y_pred):
     denom = np.maximum(np.abs(y_true), 1e-6)
     return float(np.mean(np.abs((y_true - y_pred) / denom)) * 100.0)
 
+#Uzme jedan forecast (po forecast_id), nađe sve sate gdje imamo i prognozu i stvarni load, pa vrati MAPE i broj tačaka.
 @api_bp.get('/metrics/mape/for-forecast')
 def mape_for_forecast():
     """
